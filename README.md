@@ -8,9 +8,9 @@
 
 | 项目 | 说明 |
 | --- | --- |
-| 当前版本 | **v1.5.0** |
-| 已验证客户端 | Antigravity **2.32.1**（Windows 实测；macOS / Linux 提供同逻辑脚本） |
-| 词典规模 | 约 6359 条整句词条 + 约 200 条动态正则规则 |
+| 当前版本 | **v1.6.0** |
+| 已验证客户端 | Antigravity **2.34.0**（Windows 实测；macOS / Linux 提供同逻辑脚本） |
+| 词典规模 | 7,298 条整句词条 + 306 条动态正则规则 |
 | 插件包 | 约 **11 MB**，内置 Windows 免安装 Python 运行时 |
 | 许可证 | [MIT](LICENSE) |
 
@@ -35,13 +35,13 @@
 ### 第一步：下载插件包
 
 打开 [Releases](https://github.com/yunjuanyunshu114-byte/antigravity-zh-plugin/releases/latest)，下载
-**`Antigravity-zh-plugin-v1.5.0.zip`**（约 11 MB）。
+**`Antigravity-zh-plugin-v1.6.0.zip`**（约 11 MB）。
 
 > 下载后可以用同一页面提供的 `.sha256` 文件校验完整性，见[杀软误报或下载被拦截](#杀软误报或下载被拦截)。
 
 ### 第二步：解压
 
-把 zip 解压到任意位置（例如 `D:\Tools\`），得到文件夹 **`Antigravity汉化插件-v1.5.0`**。
+把 zip 解压到任意位置（例如 `D:\Tools\`），得到文件夹 **`Antigravity汉化插件-v1.6.0`**。
 
 插件包已内置 Python 运行时，**不需要 git、不需要命令行、不需要自己装 Python**。
 
@@ -105,7 +105,7 @@ Antigravity 自动更新时，官方 `app.asar` 会覆盖汉化补丁——这�
 `python install.py <参数>`；插件包内可用自带的 `runtime\python.exe`：
 
 ```bat
-cd /d "C:\Users\<你>\Downloads\Antigravity汉化插件-v1.5.0"
+cd /d "C:\Users\<你>\Downloads\Antigravity汉化插件-v1.6.0"
 runtime\python.exe install.py --status
 ```
 
@@ -187,11 +187,11 @@ try {
 
 ```json
 {
-  "app_version": "2.32.1",
+  "app_version": "2.34.0",
   "dict_sha256": "…",
   "injected_sha256": "…",
-  "injected_at": "2026-11-14 10:30:00",
-  "toolkit_version": "1.5.0"
+  "injected_at": "2026-11-21 10:30:00",
+  "toolkit_version": "1.6.0"
 }
 ```
 
@@ -250,7 +250,7 @@ v1.5.0 起安装器自带冒烟自检：如果注入后客户端起不来，会�
 - **下载被浏览器/SmartScreen 拦截**：选择「保留」，或用 Release 页面提供的 `.sha256` 校验文件：
 
   ```bat
-  certutil -hashfile "C:\Users\<你>\Downloads\Antigravity-zh-plugin-v1.5.0.zip" SHA256
+  certutil -hashfile "C:\Users\<你>\Downloads\Antigravity-zh-plugin-v1.6.0.zip" SHA256
   ```
 
   与 `.sha256` 文件里的值一致即可放心。
@@ -277,7 +277,7 @@ A：不收费，[MIT 协议](LICENSE) 开源。
 A：补丁只读取并回写界面文本，不拦截网络请求、不改业务状态；但修改 `app.asar` 本身可能违反官方服务条款，请自行评估。
 
 **Q：支持哪些系统？**
-A：Windows 已实测（Antigravity 2.32.1）；macOS / Linux 提供同一套注入逻辑的 `install-macos.sh` / `restore-macos.sh`，本版未做同等实测。
+A：Windows 已适配至 Antigravity 2.34.0；macOS / Linux 提供同一套注入逻辑的 `install-macos.sh` / `restore-macos.sh`，未做同版本实测。
 
 **Q：为什么不能在设置里直接选中文？**
 A：Antigravity 官方目前没有中文界面选项，本插件通过注入翻译运行时实现。
@@ -342,6 +342,14 @@ A：`sudo xattr -rd com.apple.quarantine /Applications/Antigravity.app`；安装
 
 ## 更新日志
 
+### v1.6.0（2026-11-21）
+
+- **全面适配 Antigravity 2.34.0**：从新版客户端内置前端全量提取并补齐 UI 词条，词典由 6,360 条扩充至 **7,298** 条（+938 条），动态规则扩充至 **306** 条
+- **修复模型选择器 & 推理强度显示**：补全 `Extra High -> 超高`、`XHigh -> 超高`、`Minimal -> 极低`、`Max -> 最高`、`Orchestrator -> 编排器` 及其设置页与模型+推理强度组合规则；修复 `New` 在徽章与新建按钮间的上下文歧义（徽章译「新」，按钮译「新建」）；规范 `Notice -> 提示`、`Fast -> 快速`、`Medium -> 中等`、`GPT-OSS 120B (Medium) -> GPT-OSS 120B (中等)`
+- **彻底解决对话右键菜单漏翻**：扩充主进程 `MENU_LABELS` 与动态规则覆盖 `window.electronNative.showContextMenu` 全部右键项（`Pin`、`Mark Read/Unread`、`Split`、`Split Right/Down`、`Archive`、`Move to Group`、`Telemetry` 等），接入外部词典 `%USERPROFILE%\.antigravity-zh\zh-CN.json` 热重载，并同步包装 `Tray.prototype.setContextMenu` 与 macOS 更新菜单点击回调
+- **词典规范化与防误拼加固**：统一解决 70 处大小写冲突（统一 `Conversation -> 对话`、`Mark Read/Unread -> 标为已读/未读`、`Worktree -> 工作树` 等术语），清理短标签冗余英文括号与斜杠双译；为 `engine.js` 的 `tokenLookup` 增加停用词与译文长度过滤，杜绝 `Remove from Recent` 等短语逐词乱拼
+- **安装器修复**：`apply_blocks` 改为按成对 `AG_ZH_BEGIN/END` 标记精确替换，更新重装时完整保留其他第三方插件补丁（如 `GEMINI_NEKO_HUD`）；修复 `DIALOG_PATCH_JS` 循环闭包 Bug 并补全 2.34.0 原生弹窗静态与动态规则
+
 ### v1.5.0（2026-11-14）
 
 - **修复「装完客户端打不开」**：注入架构改为「**只追加 + `try/catch` 失败隔离**」。补丁只追加在文件末尾并整体包在异常捕获里，出错只写日志，不会让预加载或主进程崩溃
@@ -387,14 +395,14 @@ python install.py --asar "D:\Portable\Antigravity\resources\app.asar"   :: 手�
 ### 打包发布
 
 ```bat
-python build_release.py          :: 生成 dist\Antigravity-zh-plugin-v1.5.0.zip（内置 runtime\）及 .sha256
+python build_release.py          :: 生成 dist\Antigravity-zh-plugin-v1.6.0.zip（内置 runtime\）及 .sha256
 python build_release.py --slim   :: 不内置运行时（约 250 KB，需系统已装 Python）
 ```
 
 插件包结构（解压即用）：
 
 ```text
-Antigravity汉化插件-v1.5.0/
+Antigravity汉化插件-v1.6.0/
 ├── 安装汉化插件.bat          ← 双击这个
 ├── 还原官方原版.bat
 ├── 汉化并启动.bat            ← 客户端更新后双击这个

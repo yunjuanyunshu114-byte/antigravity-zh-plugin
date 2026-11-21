@@ -7,9 +7,9 @@ description: 为 Google Antigravity 桌面客户端（Agent Manager）安装、�
 
 为 Google Antigravity（Agent Manager）注入中文翻译引擎的汉化插件。
 
-- 当前版本：**v1.5.0**
-- 已验证客户端：Antigravity **2.32.1**（Windows 实测；macOS / Linux 提供同逻辑脚本）
-- 词典规模：约 6359 条整句词条 + 约 200 条动态正则规则
+- 当前版本：**v1.6.0**
+- 已验证客户端：Antigravity **2.34.0**（Windows 实测；macOS / Linux 提供同逻辑脚本）
+- 词典规模：7,298 条整句词条 + 306 条动态正则规则
 - 包内自带的 Windows 免安装 Python 运行时，用户机器无需任何环境
 
 ## 适用对象
@@ -18,15 +18,14 @@ description: 为 Google Antigravity 桌面客户端（Agent Manager）安装、�
 - Electron 结构：`resources/app.asar` + `dist/preload.js`
 - 典型请求：安装汉化 / 客户端更新后恢复 / 还原英文 / 注册开机自动修复 / 排查「装完打不开」
 
-## 工作方式（v1.5.0）
+## 工作方式（v1.6.0）
 
 1. 解包 `app.asar`（`asar.py` 纯 Python 实现，无需 Node.js）。
-2. **只追加注入**：向入口文件末尾追加带标记的补丁块
+2. **只追加注入（保留第三方补丁）**：向入口文件末尾追加带标记的补丁块
    （`// ===== AG_ZH_BEGIN:<name> =====` … `// ===== AG_ZH_END:<name> =====`），
-   **不就地替换**任何官方代码，每个补丁块整体 `try/catch`，补丁出错不影响客户端启动。
-3. 注入点：`dist/preload.js` / `dist/ideInstall/wizardPreload.js`（DOM 翻译引擎）、
-   `dist/menu.js`（包装 `Menu.setApplicationMenu` + `Menu.buildFromTemplate`，
-   菜单与托盘标签统一翻译）、`dist/main.js`（菜单兜底 + 包装 `dialog.*` 原生弹窗）、
+   **不就地替换**任何官方代码，更新重装时仅清理成对 `AG_ZH_BEGIN/END` 块，完整保留其他第三方插件补丁（如 `GEMINI_NEKO_HUD`）；每个补丁块整体 `try/catch`，补丁出错不影响客户端启动。
+3. 注入点：`dist/preload.js` / `dist/ideInstall/wizardPreload.js`（DOM 翻译引擎，支持 `New` 上下文区分与防误拼 `tokenLookup`）、
+   `dist/menu.js`（包装 `Menu.setApplicationMenu` + `Menu.buildFromTemplate` + `Tray.prototype.setContextMenu`，支持外部词典 `zh-CN.json` 热加载，菜单、上下文菜单与托盘标签统一翻译）、`dist/main.js`（菜单兜底 + 包装 `dialog.*` 原生弹窗与参数化规则）、
    `dist/loadingOverlay.js`（加载画面插入一行中文，唯一例外）。
    `dist/tray.js` **不追加补丁**，托盘菜单由菜单包装覆盖。
 4. 重新打包（`chrome-devtools-mcp` 保持 unpacked）→ **替换前结构校验**（头部、文件数、入口、注入标记）
@@ -44,7 +43,7 @@ description: 为 Google Antigravity 桌面客户端（Agent Manager）安装、�
 
 ### 插件包（推荐，用户无需任何环境）
 
-1. 下载并解压 `Antigravity-zh-plugin-v1.5.0.zip`，得到 `Antigravity汉化插件-v1.5.0` 文件夹。
+1. 下载并解压 `Antigravity-zh-plugin-v1.6.0.zip`，得到 `Antigravity汉化插件-v1.6.0` 文件夹。
 2. 完全退出 Antigravity（含托盘；脚本也会自动关闭）。
 3. 双击 **`安装汉化插件.bat`**：自动关闭客户端 → 备份 → 注入 → 结构校验 → 冒烟测试 → 启动客户端。
    看到中文界面即成功；若冒烟失败会自动回滚官方原版并提示原因。
@@ -118,7 +117,7 @@ python install.py --asar "D:\Portable\Antigravity\resources\app.asar"   :: 手�
 ## 打包发布
 
 ```bat
-python build_release.py           :: 生成 dist\Antigravity-zh-plugin-v1.5.0.zip（内置 runtime\）及 .sha256
+python build_release.py           :: 生成 dist\Antigravity-zh-plugin-v1.6.0.zip（内置 runtime\）及 .sha256
 python build_release.py --slim    :: 不内置 Python 运行时
 ```
 

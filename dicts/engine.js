@@ -356,11 +356,23 @@
     "Update available": "发现新版本",
     "Downloading...": "正在下载...",
     "Update downloaded": "更新已下载完成",
-    "Error checking for updates": "检查更新失败"
+    "Error checking for updates": "检查更新失败",
+    "Conversations": "对话",
+    "Extra High": "超高",
+    "XHigh": "超高",
+    "Minimal": "极低",
+    "Medium": "中等",
+    "Max": "最高",
+    "Orchestrator": "编排器",
+    "Notice": "提示",
+    "New": "新",
+    "Fast": "快速",
+    "Mark Read": "标为已读",
+    "Mark Unread": "标为未读"
   };
 
   const coreWords = {
-    "create": "创建", "delete": "删除", "new": "新建", "edit": "编辑", "save": "保存", "cancel": "取消", "confirm": "确认",
+    "create": "创建", "delete": "删除", "edit": "编辑", "save": "保存", "cancel": "取消", "confirm": "确认",
     "close": "关闭", "open": "打开", "stop": "停止", "start": "启动", "run": "运行", "add": "添加", "remove": "移除",
     "update": "更新", "select": "选择", "clear": "清除", "search": "搜索", "find": "查找", "view": "查看", "show": "显示", "hide": "隐藏",
     "agent": "智能体", "agents": "智能体", "subagent": "子智能体", "subagents": "子智能体", "task": "任务", "tasks": "任务",
@@ -390,9 +402,16 @@
       if (!(ek in dictionary) && !(ek in coreWords)) dictionary[ek] = extraDict[ek];
     }
   }
-  // ===== 索引与缓存（v4 性能优化）=====
+  // ===== 索引与缓存（v5 性能优化 + 防误拼）=====
   // lowerLookup: 小写 key -> 译文（O(1) 精确匹配）
-  // tokenLookup: 单个单词 key -> 译文（短文本逐词兜底）
+  // tokenLookup: 单个单词 key -> 译文（短文本逐词兜底，过滤功能词与长译文）
+  const TOKEN_BLOCKLIST = new Set([
+    'new', 'no', 'yes', 'from', 'to', 'in', 'on', 'at', 'of', 'for', 'by', 'with',
+    'as', 'or', 'and', 'the', 'a', 'an', 'is', 'are', 'be', 'not', 'tab', 'last',
+    'next', 'back', 'app', 'system', 'notice', 'extra', 'max', 'low', 'high', 'medium',
+    'pin', 'split', 'run', 'runs', 'plan', 'code', 'read', 'see', 'this', 'you', 'all',
+    'end', 'eye', 'pro', 'flash', 'lite', 'fast', 'copy', 'move', 'show', 'hide'
+  ]);
   let combinedDict, exactLookup, lowerLookup, tokenLookup;
   const translationCache = new Map();
   const CACHE_LIMIT = 8000;
@@ -408,7 +427,10 @@
       exactLookup.set(k, v);
       const lk = k.toLowerCase();
       if (!lowerLookup.has(lk)) lowerLookup.set(lk, v);
-      if (!/\s/.test(k) && !tokenLookup.has(lk)) tokenLookup.set(lk, v);
+      const hanCount = (v.match(/[\u4e00-\u9fff]/g) || []).length;
+      if (!/\s/.test(k) && !TOKEN_BLOCKLIST.has(lk) && !/[\s/()（）]/.test(v) && hanCount <= 4 && !tokenLookup.has(lk)) {
+        tokenLookup.set(lk, v);
+      }
     }
     translationCache.clear();
   }
@@ -472,8 +494,148 @@
   };
   const MONTH_CN = { jan: '1月', feb: '2月', mar: '3月', apr: '4月', may: '5月', jun: '6月', jul: '7月', aug: '8月', sep: '9月', oct: '10月', nov: '11月', dec: '12月' };
   const meridiem = function (ap) { return ap.toUpperCase() === 'PM' ? '下午' : '上午'; };
+  const EFFORT_CN = {
+    minimal: '极低',
+    low: '低',
+    medium: '中等',
+    high: '高',
+    'extra high': '超高',
+    xhigh: '超高',
+    extra: '超高',
+    max: '最高'
+  };
+  function translateEffort(e) {
+    if (!e) return e;
+    return EFFORT_CN[String(e).trim().toLowerCase()] || e;
+  }
   // 动态正则规则（参考社区汉化项目沉淀，整串锚定匹配；在词典精确匹配之后执行）
   const dynamicRules = [
+    // --- v2.34 模型推理强度与编排器组合 ---
+    [/^((?:Gemini|Claude|GPT|Orchestrator)[^\n(]{1,60}?)\s*\((Extra High|XHigh|Extra|Minimal|Low|Medium|High|Max)(?:\s+thinking)?\)$/i, function (m, model, effort) {
+      return translateCaptured(model.trim()) + ' (' + translateEffort(effort) + ')';
+    }],
+    [/^((?:Gemini|Claude|GPT)[^\n·]{1,60}?)\s+(Extra High|XHigh|Extra|Minimal|Low|Medium|High|Max)(\s*·\s*.+)?$/i, function (m, model, effort, tail) {
+      return model.trim() + ' ' + translateEffort(effort) + (tail || '');
+    }],
+    [/^(Extra High|XHigh|Minimal|Low|Medium|High|Max|Extra)\s*·\s*(.+)$/i, function (m, effort, rest) {
+      return translateEffort(effort) + ' · ' + rest;
+    }],
+    [/^Orchestrator\s+(.+)$/i, function (m, rest) {
+      return '编排器 ' + translateString(rest.trim());
+    }],
+    // --- v2.34 全面适配规则（置于通用 Open/Remove/Toggle 规则之前）---
+    [/^Pin Entire (.+)$/i, function (m, target) { return '置顶整个' + translateCaptured(target); }],
+    [/^Unpin (.+)$/i, function (m, target) { return '取消置顶' + translateCaptured(target); }],
+    [/^Move to Group:\s*(.+)$/i, '移动到分组：$1'],
+    [/^Open Subagent:\s*(.+)$/i, '打开子智能体：$1'],
+    [/^Open URL in system browser:\s*(.+)$/i, '在系统浏览器中打开 URL：$1'],
+    [/^Open the (.+) plugin$/i, '打开 $1 插件'],
+    [/^Open (.+) skill$/i, '打开 $1 技能'],
+    [/^Show (.+) in folder$/i, '在文件夹中显示 $1'],
+    [/^Opens the New Conversation screen for this (.+)$/i, function (m, t) { return '打开此' + translateCaptured(t) + '的“新建对话”页面'; }],
+    [/^Agents created by this (.+?) run in a dedicated (.+?) with its own permissions\.\s*You can change the permissions in the (.+?) settings page\.$/i, function (m, src, scope) {
+      return '由此' + translateCaptured(src) + '创建的智能体将在独立的' + translateCaptured(scope) + '中运行并拥有专属权限。您可以在该' + translateCaptured(scope) + '设置页面中更改权限。';
+    }],
+    [/^(.+),\s*(\d+)\s+grants?$/i, function (m, lbl, n) { return translateCaptured(lbl) + '，' + n + ' 项授权'; }],
+    [/^(Disable|Enable)\s+(.+?)\s+tool\s+for\s+(.+)$/i, function (m, act, tool, target) {
+      return (act.toLowerCase() === 'disable' ? '禁用' : '启用') + ' ' + target + ' 的 ' + tool + ' 工具';
+    }],
+    [/^Reset (.+) to default$/i, function (m, name) { return '将 ' + translateCaptured(name) + ' 重置为默认'; }],
+    [/^(\d+) lines? added,\s*(\d+) lines? removed$/i, '新增 $1 行，删除 $2 行'],
+    [/^Plan,\s*(\d+) of (\d+) steps? done$/i, '计划，已完成 $1 / $2 步'],
+    [/^Unfold lines (\d+)-(\d+)$/i, '展开第 $1-$2 行'],
+    [/^Go to page (\d+)$/i, '跳转到第 $1 页'],
+    [/^Go to slide (\d+)$/i, '跳转到第 $1 张幻灯片'],
+    [/^Go to turn (\d+) of (\d+)$/i, '跳转到第 $1 / $2 轮'],
+    [/^Page (\d+) failed to load$/i, '第 $1 页加载失败'],
+    [/^Playback speed ([\d.]+)x$/i, '播放速度 $1x'],
+    [/^Zoom (\d+)%,\s*reset to fit$/i, '缩放 $1%，点击重置为适应页面'],
+    [/^Scroll to:\s*(.+?)\s+on page\s+(\d+)$/i, '滚动到第 $2 页的 $1'],
+    [/^Detached at ([0-9a-f]+)$/i, '分离头指针位于 $1'],
+    [/^View Diff for (.+)$/i, '查看 $1 的差异'],
+    [/^Resume (\d+) comment drafts?$/i, '恢复 $1 条批注草稿'],
+    [/^(.+?)\s+\(Remote\)$/i, '$1（远程）'],
+    [/^(.+?)\s+\(experimental\)$/i, function (m, lbl) { return translateCaptured(lbl) + '（实验性）'; }],
+    [/^(.+?)\s+\(Default\)$/i, function (m, lbl) { return translateCaptured(lbl) + '（默认）'; }],
+    [/^System default \((.+)\)$/i, '系统默认（$1）'],
+    [/^Switch environment \((.+)\)$/i, '切换环境（$1）'],
+    [/^This window's agents,\s*files,\s*and terminals are on (.+)\.$/i, '此窗口中的智能体、文件和终端均位于 $1。'],
+    [/^SSH:\s*(.+)$/i, 'SSH：$1'],
+    [/^Branch,\s*current:\s*(.+)$/i, '分支，当前：$1'],
+    [/^Connected to (.+)$/i, '已连接到 $1'],
+    [/^Couldn't connect to (.+)$/i, '无法连接到 $1'],
+    [/^Connect to (.+)$/i, function (m, target) { return '连接到 ' + translateCaptured(target); }],
+    [/^Connect (.+)$/i, function (m, target) { return '连接 ' + translateCaptured(target); }],
+    [/^Switch to (.+)$/i, function (m, target) { return '切换到 ' + translateCaptured(target); }],
+    [/^Sign in to (.+) remotely$/i, '远程登录到 $1'],
+    [/^Sign in to (.+)$/i, '登录到 $1'],
+    [/^Delete cookies for (.+)$/i, '删除 $1 的 Cookie'],
+    [/^The browser blocked the download of (.+)$/i, '浏览器阻止了 $1 的下载'],
+    [/^Blocked cross-origin subframe "(.+)"$/i, '已阻止跨域子框架“$1”'],
+    [/^Blocked external popup navigation to "(.+)"$/i, '已阻止跳转到外部弹窗“$1”'],
+    [/^Blocked navigation to "(.+)"$/i, '已阻止导航到“$1”'],
+    [/^Blocked popup to "(.+)"$/i, '已阻止弹窗跳转到“$1”'],
+    [/^Search Google for [“"](.+)[”"]$/i, '在 Google 中搜索“$1”'],
+    [/^Microphone access for (.+?) was denied\.\s*Quit and reopen the app to be asked again\.$/i, '$1 的麦克风权限已被拒绝。请退出并重新打开应用以再次请求授权。'],
+    [/^Microphone blocked\.\s*Allow in (.+)\.$/i, '麦克风已阻止。请在 $1 中允许访问。'],
+    [/^Account this MCP server uses:\s*(.+)$/i, '此 MCP 服务器使用的账号：$1'],
+    [/^Configure (.+)$/i, '配置 $1'],
+    [/^Plugins in (.+)$/i, function (m, name) { return translateCaptured(name) + ' 中的插件'; }],
+    [/^Review (.+) before installing$/i, '安装前审查 $1'],
+    [/^Filter skills and rules:\s*(.+)$/i, function (m, s) { return '筛选技能和规则：' + translateCaptured(s); }],
+    [/^More options for (.+)$/i, '“$1”的更多选项'],
+    [/^More for (.+)$/i, '更多：$1'],
+    [/^Remove (.+) from Recent$/i, '从最近记录中移除 $1'],
+    [/^Remove (.+) from list$/i, '从列表中移除 $1'],
+    [/^Remove context from (.+)$/i, '从 $1 中移除上下文'],
+    [/^(.+),\s*showing (\d+) of (\d+)$/i, function (m, title, b, c) { return translateCaptured(title) + '，正显示第 ' + b + ' / ' + c + ' 项'; }],
+    [/^Stop (\d+) selected$/i, '停止已选中的 $1 项'],
+    [/^Run (.+) now$/i, '立即运行 $1'],
+    [/^Fix with Agent:\s*(.+)$/i, '使用智能体修复：$1'],
+    [/^Cancel (.+)$/i, function (m, x) { return '取消 ' + translateCaptured(x); }],
+    [/^Close (.+)$/i, function (m, x) { return '关闭 ' + translateCaptured(x); }],
+    [/^Created? automation "(.+)"\.?$/i, '已创建自动化任务“$1”。'],
+    [/^Deleted "(.+)"\.?$/i, '已删除“$1”。'],
+    [/^Enabled "(.+)"\.?$/i, '已启用“$1”。'],
+    [/^Started "(.+)"\.?$/i, '已启动“$1”。'],
+    [/^Restarted "(.+)"\.?$/i, '已重启“$1”。'],
+    [/^Restart (.+)$/i, function (m, x) { return '重启 ' + translateCaptured(x); }],
+    [/^Failed to delete "(.+)"$/i, '删除“$1”失败'],
+    [/^Failed to save "(.+)"$/i, '保存“$1”失败'],
+    [/^Failed to start "(.+)"\.?$/i, '启动“$1”失败。'],
+    [/^Failed to update "(.+)"$/i, '更新“$1”失败'],
+    [/^A file already exists at (.+)\.?$/i, '位置 $1 已存在同名文件。'],
+    [/^The folder [“"](.+)[”"] does not exist\.\s*Would you like to create it\?$/i, '文件夹“$1”不存在。是否创建该文件夹？'],
+    [/^[“"](.+)[”"] isn[’']t a valid folder name\.$/i, '“$1”不是有效的文件夹名称。'],
+    [/^Can[’']t create this path\s*[—-]\s*[“"](.+)[”"] is a file,\s*not a folder\.$/i, '无法创建此路径——“$1”是文件，而不是文件夹。'],
+    [/^Cannot add folder:\s*"(.+)" is not a valid folder location\.$/i, '无法添加文件夹：“$1”不是有效的文件夹位置。'],
+    [/^Voice [Ss]peed,\s*(.+)$/i, '语速，$1'],
+    [/^(\d+)% left$/i, '剩余 $1%'],
+    [/^(\d+) comments?$/i, '$1 条批注'],
+    [/^\+(\d+) more$/i, '另有 $1 项'],
+    [/^(\d+) results?$/i, '$1 条结果'],
+    [/^Copied to clipboard$/i, '已复制到剪贴板'],
+    [/^script timed out after (\d+)ms$/i, '脚本在 $1 毫秒后超时'],
+    [/^Failed to save project(?: (permissions|settings|Google3 configuration))?:\s*(.+)$/i, function (m, kind, err) {
+      var k = kind ? (kind.toLowerCase() === 'permissions' ? '权限' : kind.toLowerCase() === 'settings' ? '设置' : 'Google3 配置') : '';
+      return '保存项目' + k + '失败：' + err;
+    }],
+    [/^Failed to (archive|delete|create) (.+)$/i, function (m, op, what) {
+      var opMap = { archive: '归档', delete: '删除', create: '创建' };
+      return opMap[op.toLowerCase()] + translateCaptured(what) + '失败';
+    }],
+    [/^Delete ([^!?,;:]{1,40})$/i, function (m, what) { return '删除 ' + translateCaptured(what); }],
+    [/^Enable ([^!?,;:]{1,40})$/i, function (m, what) { return '启用 ' + translateCaptured(what); }],
+    [/^Edit ([^!?,;:]{1,40})$/i, function (m, what) { return '编辑 ' + translateCaptured(what); }],
+    [/^View ([^!?,;:]{1,40})$/i, function (m, what) { return '查看 ' + translateCaptured(what); }],
+    [/^Label for (.+)$/i, '$1 的标签'],
+    [/^(.+) color picker$/i, '$1 颜色选择器'],
+    [/^(.+) download progress$/i, '$1 下载进度'],
+    [/^App view for (.+)$/i, '$1 的应用视图'],
+    [/^Help us improve (.+?)\.?$/i, '帮助我们改进 $1。'],
+    [/^Manage (.+?) app settings\.?$/i, '管理 $1 应用设置。'],
+    [/^(.+?)\s+Failed$/i, function (m, x) { return translateCaptured(x) + '失败'; }],
+    [/^(.+?)\s+failed$/i, function (m, x) { return translateCaptured(x) + '失败'; }],
     [/^(\d+)\s*(?:seconds?|secs?)\s+ago$/i, '$1 秒前'],
     [/^(\d+)\s*(?:minutes?|mins?)\s+ago$/i, '$1 分钟前'],
     [/^(\d+)\s*(?:hours?|hrs?)\s+ago$/i, '$1 小时前'],
@@ -624,8 +786,8 @@
     [/^Executing task:\s*(.+)$/i, '正在执行任务：$1'],
     [/^Send feedback as (.+)$/i, '以 $1 身份发送反馈'],
     [/^Models within this group:\s*(.*)$/i, '该分组包含的模型：$1'],
-    [/^Select model,\s*current:\s*(.+)$/i, '选择模型，当前：$1'],
-    [/^Select project,\s*current:\s*(.+)$/i, '选择项目，当前：$1'],
+    [/^Select model,\s*current:\s*(.+)$/i, function (m, cur) { return '选择模型，当前：' + translateString(cur.trim()); }],
+    [/^Select project,\s*current:\s*(.+)$/i, function (m, cur) { return '选择项目，当前：' + translateCaptured(cur.trim()); }],
     // 文件卡片/表格按钮的无障碍标签（只用于 aria-label 场景）
     [/^Open\s+(.+)$/i, function (m, name) { return '打开 ' + name; }],
     // 语音选择器：「Fola, voice 1 of 9」
@@ -672,6 +834,7 @@
     [/^(\d+)\s+minutes?$/i, '$1 分钟'],
     [/^(\d+)\s+hours?$/i, '$1 小时'],
     [/^(\d+)\s+days?$/i, '$1 天'],
+    [/^(\d+)\s+seconds?$/i, '$1 秒'],
     // 侧栏相对时间缩写（3d / 2h / 5m / 1w / 2mo / 1y），仅匹配「数字+单位」的整串
     [/^(\d+)\s*d$/i, '$1 天'],
     [/^(\d+)\s*h$/i, '$1 小时'],
@@ -830,7 +993,8 @@
     if (wordsCount > 3) return text;
     if (hasChinese) return text;
 
-    // 4. 短文本逐词兜底：仅当每个 >=2 字母的单词都能在词典中找到时才翻译
+    // 4. 短文本逐词兜底：跳过邮箱/URL/路径等，且仅当每个 >=2 字母的单词都能在词典中找到时才翻译
+    if (/[@]|:\/\/|~\//.test(core)) return text;
     const tokens = core.match(/[A-Za-z][A-Za-z'-]*/g) || [];
     if (!tokens.length) return text;
     for (var ti = 0; ti < tokens.length; ti++) {
@@ -1038,6 +1202,21 @@
     return changed;
   }
 
+  function isNewActionContext(element) {
+    try {
+      if (!element || !element.closest) return false;
+      if (element.closest('[data-testid*="new-button"]')) return true;
+      const inActionEl = element.closest('button,[role="button"],a');
+      if (!inActionEl) return false;
+      if (element.closest('[data-tooltip-id],.rounded-full,[class*="bg-primary/10"],[class*="bg-secondary"],[data-model-label],[data-testid^="model-selector"]')) {
+        return false;
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function translateOne(node, priority) {
     if (!node || isDetached(node)) return;
     if (node.nodeType === Node.TEXT_NODE) {
@@ -1046,6 +1225,13 @@
       if (!original || original.length > 20000) return;
       // 快捷键里的 "," "." 等不能转成全角标点
       if (/^[?.!,;:]+$/.test(original.trim()) && isKeyboardShortcutContext(node)) return;
+      const trimmed = original.trim();
+      if (trimmed === 'New' || trimmed === 'NEW') {
+        const newLabel = isNewActionContext(node.parentElement) ? '新建' : '新';
+        const nextVal = original.replace(trimmed, newLabel);
+        if (nextVal !== original) node.nodeValue = nextVal;
+        return;
+      }
       if (tryCompositeSentence(node, original)) return;
       const translated = translateString(original);
       if (translated !== original) node.nodeValue = translated;
@@ -1184,7 +1370,7 @@
   // 诊断接口（DevTools Console 可查看）
   try {
     window.__AG_ZH__ = {
-      version: 'v4',
+      version: 'v5',
       dictSize: Object.keys(combinedDict).length,
       translate: translateString,
       pending: function () { return (priorityQueue.length - priorityHead) + (pendingQueue.length - pendingHead); }
