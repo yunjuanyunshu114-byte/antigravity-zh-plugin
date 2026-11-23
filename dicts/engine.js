@@ -528,9 +528,11 @@
     [/^[Rr]esets? in (\d+)\s*(?:h|hours?)\.?$/, '$1 小时后重置'],
     [/^[Rr]esets? in (\d+)\s*(?:m|mins?|minutes?)\.?$/, '$1 分钟后重置'],
     [/^[Rr]esets? in (\d+)\s*(?:s|secs?|seconds?)\.?$/, '$1 秒后重置'],
+    [/^[Rr]esets? in <\s*1\s*m(?:in)?\.?$/i, '不到 1 分钟后重置'],
     [/^[Rr]esets? in less than a minute\.?$/i, '不到 1 分钟后重置'],
     [/^[Rr]esets? in a few seconds\.?$/i, '几秒后重置'],
     [/^[Rr]esets? soon\.?$/i, '即将重置'],
+    [/^[Rr]esets? in (\d+\s*(?:天|小时|分钟|分|秒)(?:[\s,]+\d+\s*(?:天|小时|分钟|分|秒))*)\.?$/i, function (m, body) { return body.replace(/\s*,\s*/g, ' ') + '后重置'; }],
     [/^[Rr]efreshes? in (\d+)\s*(?:d|days?)[,\s]+(\d+)\s*(?:h|hours?)[,\s]+(\d+)\s*(?:m|mins?|minutes?)\.?$/, '$1 天 $2 小时 $3 分钟后重置刷新'],
     [/^[Rr]efreshes? in (\d+)\s*(?:d|days?)[,\s]+(\d+)\s*(?:h|hours?)\.?$/, '$1 天 $2 小时后重置刷新'],
     [/^[Rr]efreshes? in (\d+)\s*(?:h|hours?)[,\s]+(\d+)\s*(?:m|mins?|minutes?)\.?$/, '$1 小时 $2 分钟后重置刷新'],
@@ -630,7 +632,22 @@
     [/^Open\s+(.+)$/i, function (m, name) { return '打开 ' + name; }],
     // 语音选择器：「Fola, voice 1 of 9」
     [/^(.+),\s*voice (\d+) of (\d+)$/i, function (m, name, i, n) { return name + '，第 ' + i + ' 个语音（共 ' + n + ' 个）'; }],
-    // 模型用量标签：「Gemini 4 Argon Weekly Limit」/「... 5-Hour Limit」
+    // 模型用量标签：「Gemini 4 Argon Weekly Limit」/「... 5-Hour Limit」/「80% left」
+    [/^%\s*left$/i, '% 剩余'],
+    [/^(\d+(?:\.\d+)?)%\s*left$/i, '剩余 $1%'],
+    [/^(Weekly limit|Daily limit|5-?Hour limit|\d+\s*[smhd]\s+limit),\s*(resets? in .+)$/i, function (m, prefix, resetPart) {
+      var p = /^weekly/i.test(prefix) ? '每周限额'
+        : /^daily/i.test(prefix) ? '每日限额'
+        : /^5-?hour/i.test(prefix) ? '5 小时限额'
+        : prefix.replace(/^(\d+)\s*([smhd])\s+limit$/i, function (_, n, u) {
+            return n + ' ' + { s: '秒', m: '分钟', h: '小时', d: '天' }[u.toLowerCase()] + '限额';
+          });
+      var r = translateString(resetPart);
+      return p + '，' + (r || resetPart);
+    }],
+    [/^(\d+)\s*([smhd])\s+limit$/i, function (m, n, u) {
+      return n + ' ' + { s: '秒', m: '分钟', h: '小时', d: '天' }[u.toLowerCase()] + '限额';
+    }],
     [/^(.+?)\s+(Weekly Limit|5-?Hour Limit)$/i, function (m, model, kind) {
       const label = /^weekly/i.test(kind) ? '每周限额' : '5 小时限额';
       return translateCaptured(model) + ' ' + label;
@@ -872,6 +889,82 @@
     '[class*="font-mono"][class*="rounded-xl"]'
   ].join(',');
   const TRIGGER_SELECTOR = '[data-testid="thinking-collapsible-trigger"],[data-testid="worked-for-collapsible"],[data-testid="tool-group-collapsible"]';
+  const MODEL_SELECTOR_SKIP_SELECTOR = [
+    '[data-testid="model-selector-trigger"]',
+    '[data-testid="model-selector-header"]',
+    '[data-testid="model-selector-item"]',
+    '[data-testid="model-selector-custom-item"]',
+    '[data-testid="model-selector-orchestrator"]',
+    '[data-testid="model-selector-orchestrator-model"]',
+    '[data-testid="model-selector-effort-group"]',
+    '[data-testid="model-selector-effort-header"]',
+    '[data-testid="model-selector-effort-info"]',
+    '[data-testid="model-selector-effort-option"]',
+    '[data-testid="model-selector-empty"]',
+    '[data-testid="model-selector-loading"]',
+    '[data-testid="model-selector-add-custom-model"]',
+    '[data-testid="model-selector-refresh"]',
+    '[data-testid="orchestrator-picker-row"]',
+    '[data-testid="orchestrator-picker-effort"]'
+  ].join(',');
+
+  const MODEL_PANEL_LIST_MARKERS = [
+    '[data-testid="model-selector-header"]',
+    '[data-testid="model-selector-effort-group"]',
+    '[data-testid="model-selector-item"]',
+    '[data-testid="model-selector-orchestrator"]',
+    '[data-testid="model-selector-empty"]'
+  ].join(',');
+
+  const MODEL_SUBMENU_MARKERS = [
+    '[data-testid="model-selector-effort-header"]',
+    '[data-testid="model-selector-effort-option"]',
+    '[data-testid="orchestrator-picker-row"]',
+    '[data-testid="orchestrator-picker-effort"]'
+  ].join(',');
+
+  function isModelSelectorContext(element) {
+    if (!element || !element.closest) return false;
+    // 1) 模型选择按钮、标题、列表项、思考强度/编排器子菜单
+    if (element.closest(MODEL_SELECTOR_SKIP_SELECTOR)) return true;
+
+    // 2) 设置页中编排器模型选择下拉按钮（保留按钮上的英文模型名/思考强度，不影响设置项标题与说明）
+    const selectTrigger = element.closest('button.agy-select-trigger');
+    if (selectTrigger && selectTrigger.closest('[data-testid="orchestrator-model"],[data-testid="orchestrator-executor-model"]')) {
+      return true;
+    }
+
+    // 3) 模型选择面板 [data-testid="model-selector-panel"] 内：
+    //    仅跳过模型列表区（含同级思考强度与 New/Notice/Unavailable 徽章、Custom 区块、Best of N 项），
+    //    放行同面板底部的用量入口区（"View Usage" / "View plans"）。
+    const panel = element.closest('[data-testid="model-selector-panel"]');
+    if (panel) {
+      if (element === panel) return false;
+      let topChild = element;
+      while (topChild && topChild.parentElement && topChild.parentElement !== panel) {
+        topChild = topChild.parentElement;
+      }
+      if (topChild && topChild.parentElement === panel) {
+        if (
+          (topChild.matches && topChild.matches('[data-testid="model-selector-loading"]')) ||
+          (topChild.querySelector && topChild.querySelector(MODEL_PANEL_LIST_MARKERS))
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // 4) 独立悬浮子菜单 Portal（思考强度子菜单 / 编排器模型子菜单 / 上下文窗口子菜单）：
+    //    Usage 用量明细弹窗不含上述标记，完整放行翻译。
+    const menu = element.closest('[role="menu"]');
+    if (menu && menu.querySelector && menu.querySelector(MODEL_SUBMENU_MARKERS)) {
+      return true;
+    }
+
+    return false;
+  }
+
   const skipCache = new WeakMap();
 
   function shouldSkipNode(node) {
@@ -896,6 +989,7 @@
         if (!(trigger && container.contains(trigger))) result = true;
       }
       if (!result && element.closest && element.closest(SKIP_SELECTOR)) result = true;
+      if (!result && isModelSelectorContext(element)) result = true;
       if (!result && element.className && typeof element.className === 'string') {
         let cur = element;
         while (cur) {

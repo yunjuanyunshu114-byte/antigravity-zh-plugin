@@ -50,6 +50,9 @@ UNPACK_PATTERNS = ["**/node_modules/chrome-devtools-mcp/**"]
 BLOCK_BEGIN = "// ===== AG_ZH_BEGIN:%s ====="
 BLOCK_END = "// ===== AG_ZH_END:%s ====="
 BLOCK_BEGIN_PREFIX = "// ===== AG_ZH_BEGIN:"
+BLOCK_PAIR_RE = re.compile(
+    r"\n?// ===== AG_ZH_BEGIN:[^\n]+ =====[\s\S]*?// ===== AG_ZH_END:[^\n]+ =====\n?"
+)
 LEGACY_MARKERS = [
     "// ===== Antigravity Chinese Translation Injection v3-full =====",
     "// ===== Antigravity Chinese Translation Injection v2-extra =====",
@@ -528,13 +531,17 @@ def _truncate_tail(content, markers):
 
 
 def apply_blocks(path, blocks, engine=False):
-    """清除旧注入块后，把 blocks 以标记块形式追加到文件末尾。"""
+    """清除旧注入块（保留第三方插件块）后，把 blocks 以标记块形式追加到文件末尾。"""
     content = read_text(path)
     content = content.replace(LEGACY_MENU_CALL, "")
+    content = BLOCK_PAIR_RE.sub("\n", content)
     markers = [BLOCK_BEGIN_PREFIX] + LEGACY_MARKERS
     if engine:
         markers = markers + [ENGINE_START_MARKER]
-    content = _truncate_tail(content, markers)
+    if any(m and m in content for m in markers):
+        content = _truncate_tail(content, markers)
+    else:
+        content = content.rstrip() + "\n"
     for name, body in blocks:
         content += "\n" + (BLOCK_BEGIN % name) + "\n" + body.rstrip() + "\n" + (BLOCK_END % name) + "\n"
     write_text(path, content)
