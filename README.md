@@ -12,6 +12,7 @@
 | 已验证客户端 | Antigravity **2.34.0**（Windows 实测；macOS / Linux 提供同逻辑脚本） |
 | 词典规模 | 7,298 条整句词条 + 306 条动态正则规则 |
 | 插件包 | 约 **11 MB**，内置 Windows 免安装 Python 运行时 |
+| 旧版备份 | **v1.5.0**（适配 Antigravity 2.32.1）：[源码备份分支 `backup/v1.5.0`](https://github.com/yunjuanyunshu114-byte/antigravity-zh-plugin/tree/backup/v1.5.0) · [Release 下载](https://github.com/yunjuanyunshu114-byte/antigravity-zh-plugin/releases/tag/v1.5.0) |
 | 许可证 | [MIT](LICENSE) |
 
 ---
@@ -350,7 +351,7 @@ A：`sudo xattr -rd com.apple.quarantine /Applications/Antigravity.app`；安装
 - **词典规范化与防误拼加固**：统一解决 70 处大小写冲突（统一 `Conversation -> 对话`、`Mark Read/Unread -> 标为已读/未读`、`Worktree -> 工作树` 等术语），清理短标签冗余英文括号与斜杠双译；为 `engine.js` 的 `tokenLookup` 增加停用词与译文长度过滤，杜绝 `Remove from Recent` 等短语逐词乱拼
 - **安装器修复**：`apply_blocks` 改为按成对 `AG_ZH_BEGIN/END` 标记精确替换，更新重装时完整保留其他第三方插件补丁（如 `GEMINI_NEKO_HUD`）；修复 `DIALOG_PATCH_JS` 循环闭包 Bug 并补全 2.34.0 原生弹窗静态与动态规则
 
-### v1.5.0（2026-11-14）
+### v1.5.0（2026-11-14）（旧版备份，源码见 [`backup/v1.5.0`](https://github.com/yunjuanyunshu114-byte/antigravity-zh-plugin/tree/backup/v1.5.0) 分支）
 
 - **修复「装完客户端打不开」**：注入架构改为「**只追加 + `try/catch` 失败隔离**」。补丁只追加在文件末尾并整体包在异常捕获里，出错只写日志，不会让预加载或主进程崩溃
 - **安装后自动冒烟测试 + 回滚**：替换 `app.asar` 后自动启动客户端，60 秒内必须出现新的启动日志且进程稳定存活；失败则自动用替换前保留的官方原版回滚、重新打开官方版，退出码 `3` 并给出中文提示。最坏情况是回到英文原版，不会留下打不开的客户端
