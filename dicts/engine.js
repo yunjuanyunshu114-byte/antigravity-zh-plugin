@@ -415,7 +415,7 @@
   let combinedDict, exactLookup, lowerLookup, tokenLookup;
   const translationCache = new Map();
   const CACHE_LIMIT = 8000;
-  const CACHE_MAX_TEXT = 600;
+  const CACHE_MAX_TEXT = 900;
 
   function rebuildDict() {
     combinedDict = Object.assign({}, coreWords, dictionary);
@@ -848,7 +848,16 @@
     [/^Yes, and always allow '([\s\S]+)' when not in a project$/i, '是，且在非项目时始终允许 \'$1\''],
     [/^Yes, and always allow '([\s\S]+)'$/i, '是，且始终允许 \'$1\''],
     [/^Yes, allow '([\s\S]+)' this time$/i, '是，仅允许本次执行 \'$1\''],
-    [/^Yes, allow '([\s\S]+)'$/i, '是，允许 \'$1\'']
+    [/^Yes, allow '([\s\S]+)'$/i, '是，允许 \'$1\''],
+    // --- v2.35.1 & 插件市场 README 动态规则 ---
+    [/^Working Directory:\s*(.+)$/i, '工作目录：$1'],
+    [/^Moved to (.+?)\.?$/i, function (m, t) { return '已移至 ' + translateCaptured(t) + '。'; }],
+    [/^Remote MCP Server \((.+)\)$/i, '远程 MCP 服务器（$1）'],
+    [/^Agent Skill \((.+)\)$/i, '智能体技能（$1）'],
+    [/^GitHub Repository \((.+)\)$/i, 'GitHub 仓库（$1）'],
+    [/^Option (\d+):\s*(.+)$/i, function (m, n, t) { return '方式 ' + n + '：' + translateCaptured(t); }],
+    [/^(\d+)\.\s+Enable the (.+)$/i, '$1. 启用 $2'],
+    [/^(\d+)\.\s+Configure (.+)$/i, '$1. 配置 $2']
   ];
 
   // 动态规则里捕获到的名称（如快捷键动作名）再走一次词典，避免中英混排
@@ -1143,7 +1152,7 @@
     const own = (original || '').trim();
     if (!own) return false;
     const combined = (parent.textContent || '').replace(/\s+/g, ' ').trim();
-    if (!combined || combined.length > 200 || !/[A-Za-z]/.test(combined)) return false;
+    if (!combined || combined.length > 600 || !/[A-Za-z]/.test(combined)) return false;
     if (combined === own || !combined.includes(own)) return false;
     let hit = exactLookup.get(combined);
     if (hit === undefined) hit = lowerLookup.get(combined.toLowerCase());
@@ -1156,6 +1165,74 @@
       child.nodeValue = first ? hit : '';
       first = false;
     }
+    return true;
+  }
+
+  // Markdown / 富文本段落常在内联标签（<strong>/<a>/<code>）前后拆分文本节点，
+  // 用 {0}/{1} 占位符整句匹配词典，仅原地改写已有 TEXT_NODE 的 nodeValue，不增删 DOM 节点
+  const RICH_BLOCK_TAGS = new Set(['P', 'LI', 'TD', 'TH', 'BLOCKQUOTE', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
+  const RICH_INLINE_TAGS = new Set(['STRONG', 'B', 'EM', 'I', 'A', 'CODE', 'SPAN', 'KBD', 'MARK', 'SMALL', 'SUB', 'SUP']);
+  const richTranslated = new WeakMap();
+
+  function tryRichInlineSentence(node) {
+    const parent = node && node.parentElement;
+    if (!parent || !RICH_BLOCK_TAGS.has(parent.tagName)) return false;
+    const elemCount = parent.childElementCount;
+    if (elemCount < 1 || elemCount > 8) return false;
+    if (shouldSkipNode(parent)) return false;
+
+    const childNodes = parent.childNodes;
+    const slots = [[]];
+    let sig = '';
+    let idx = 0;
+    for (let i = 0; i < childNodes.length; i++) {
+      const ch = childNodes[i];
+      if (ch.nodeType === Node.TEXT_NODE) {
+        slots[idx].push(ch);
+        sig += ch.nodeValue || '';
+      } else if (ch.nodeType === Node.ELEMENT_NODE) {
+        if (!RICH_INLINE_TAGS.has(ch.tagName)) return false;
+        sig += '{' + idx + '}';
+        idx++;
+        slots.push([]);
+      } else if (ch.nodeType === Node.COMMENT_NODE) {
+        continue;
+      } else {
+        return false;
+      }
+    }
+    if (idx === 0) return false;
+    sig = sig.replace(/\s+/g, ' ').trim();
+    if (!sig || sig.length > 1000 || !/[A-Za-z]/.test(sig)) return false;
+    if (richTranslated.get(parent) === sig) return true;
+
+    let hit = exactLookup.get(sig);
+    if (hit === undefined) hit = lowerLookup.get(sig.toLowerCase());
+    if (hit === undefined) return false;
+
+    const parts = [];
+    let cursor = 0;
+    for (let k = 0; k < idx; k++) {
+      const token = '{' + k + '}';
+      const pos = hit.indexOf(token, cursor);
+      if (pos < 0) return false;
+      parts.push(hit.slice(cursor, pos));
+      cursor = pos + token.length;
+    }
+    parts.push(hit.slice(cursor));
+    for (let k = 0; k < idx; k++) {
+      if (parts.some(function (p) { return p.indexOf('{' + k + '}') >= 0; })) return false;
+    }
+    for (let k = 0; k <= idx; k++) {
+      if (parts[k] !== '' && slots[k].length === 0) return false;
+    }
+
+    for (let k = 0; k <= idx; k++) {
+      if (slots[k].length === 0) continue;
+      slots[k][0].nodeValue = parts[k];
+      for (let j = 1; j < slots[k].length; j++) slots[k][j].nodeValue = '';
+    }
+    richTranslated.set(parent, hit.replace(/\s+/g, ' ').trim());
     return true;
   }
 
@@ -1233,6 +1310,7 @@
         return;
       }
       if (tryCompositeSentence(node, original)) return;
+      if (tryRichInlineSentence(node)) return;
       const translated = translateString(original);
       if (translated !== original) node.nodeValue = translated;
       return;
@@ -1370,7 +1448,7 @@
   // 诊断接口（DevTools Console 可查看）
   try {
     window.__AG_ZH__ = {
-      version: 'v5',
+      version: 'v5.1',
       dictSize: Object.keys(combinedDict).length,
       translate: translateString,
       pending: function () { return (priorityQueue.length - priorityHead) + (pendingQueue.length - pendingHead); }

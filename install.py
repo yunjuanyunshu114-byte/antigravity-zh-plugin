@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Antigravity 中文汉化安装器 v1.6.0（纯 Python 零依赖）
+Antigravity 中文汉化安装器 v1.7.0（纯 Python 零依赖）
 ====================================================
 为 Google Antigravity 桌面客户端注入中文翻译引擎。
 
-v1.6.0 设计要点（安全第一 + 全面适配 2.34.0）：
+v1.7.0 设计要点（安全第一 + 全面适配 2.35.1）：
 - 只向入口文件末尾【追加】带 BEGIN/END 标记的补丁块，不改动官方原有代码；
   更新注入时按成对 BEGIN/END 标记精准替换，完整保留第三方补丁（如猫娘插件）。
   每个补丁块整体 try/catch 包裹，任何补丁自身出错都不会影响客户端启动。
@@ -42,7 +42,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import asar  # noqa: E402
 
-TOOLKIT_VERSION = "1.6.0"
+TOOLKIT_VERSION = "1.7.0"
 TAG = "Antigravity Chinese Translation Injection v5-appendonly"
 DICT_PLACEHOLDER = "__DICT_ITEMS__"
 ENGINE_START_MARKER = "(function() {\n  const dictionary = {"
@@ -464,7 +464,17 @@ DIALOG_LABELS = {
     "Stop SSH server": "停止 SSH 服务器",
     "Stop Server": "停止服务器",
     "Agents running on this host will stop and its window will close.": "此主机上运行的智能体将停止，且其窗口将会关闭。",
+    "Agents running on this host will stop and its window will close. The server starts again the next time you connect.": "此主机上运行的智能体将停止，且其窗口将会关闭。下次连接时服务器会重新启动。",
     "Reconnect first, then stop its server.": "请先重新连接，然后再停止其服务器。",
+    "Binary not found": "未找到可执行文件",
+    "WSL setup failed": "WSL 配置失败",
+    "Startup failed": "启动失败",
+    "Passkeys": "通行密钥",
+    "Unknown device": "未知设备",
+    "Browser control action failed": "浏览器控制操作失败",
+    "Failed to stop agent browser": "停止智能体浏览器失败",
+    "Take control failed": "接管控制失败",
+    "Capture session failed": "捕获会话失败",
     "Microphone access": "麦克风权限",
     "Allow": "允许",
     "Don't Allow": "不允许",
@@ -691,6 +701,10 @@ DIALOG_PATCH_JS = """(function () {
       if (m) return '此窗口中的页面来自 ' + m[1] + '。如果允许，该页面将可以使用您的麦克风。';
       m = /^Any (.+?) still running on it stops\\.\\s*The server starts again with this app's version\\.$/.exec(t);
       if (m) return '其上仍在运行的任务将会停止，随后服务器将以当前应用版本重新启动。';
+      m = /^Continue only if you just chose to sign in with your organization in this window\\.\\s*(.+?)\\s+will get access to your organization's Google Cloud account\\.[\\s\\S]*$/i.exec(t);
+      if (m) return '仅当您刚才主动选择在此窗口中使用组织账号登录时才继续。' + m[1] + ' 将获得您组织的 Google Cloud 账号访问权限。';
+      m = /^Continue only if you just chose to sign in from the (.+?) window\\.\\s*Your browser opens the sign-in page; once you sign in,\\s*(.+?)\\s+gets access to that account\\.$/i.exec(t);
+      if (m) return '仅当您刚才主动选择从 ' + m[1] + ' 窗口登录时才继续。浏览器将打开登录页面；登录完成后，' + m[2] + ' 将获得该账号的访问权限。';
       return s;
     }
     function patchOptions(o) {

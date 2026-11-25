@@ -8,9 +8,9 @@
 
 | 项目 | 说明 |
 | --- | --- |
-| 当前版本 | **v1.6.0** |
-| 已验证客户端 | Antigravity **2.34.0**（Windows 实测；macOS / Linux 提供同逻辑脚本） |
-| 词典规模 | 7,298 条整句词条 + 306 条动态正则规则 |
+| 当前版本 | **v1.7.0** |
+| 已验证客户端 | Antigravity **2.35.1**（Windows 实测；macOS / Linux 提供同逻辑脚本） |
+| 词典规模 | 7,614 条整句词条 + 314 条动态正则规则 |
 | 插件包 | 约 **11 MB**，内置 Windows 免安装 Python 运行时 |
 | 旧版备份 | **v1.5.0**（适配 Antigravity 2.32.1）：[源码备份分支 `backup/v1.5.0`](https://github.com/yunjuanyunshu114-byte/antigravity-zh-plugin/tree/backup/v1.5.0) · [Release 下载](https://github.com/yunjuanyunshu114-byte/antigravity-zh-plugin/releases/tag/v1.5.0) |
 | 许可证 | [MIT](LICENSE) |
@@ -36,13 +36,13 @@
 ### 第一步：下载插件包
 
 打开 [Releases](https://github.com/yunjuanyunshu114-byte/antigravity-zh-plugin/releases/latest)，下载
-**`Antigravity-zh-plugin-v1.6.0.zip`**（约 11 MB）。
+**`Antigravity-zh-plugin-v1.7.0.zip`**（约 11 MB）。
 
 > 下载后可以用同一页面提供的 `.sha256` 文件校验完整性，见[杀软误报或下载被拦截](#杀软误报或下载被拦截)。
 
 ### 第二步：解压
 
-把 zip 解压到任意位置（例如 `D:\Tools\`），得到文件夹 **`Antigravity汉化插件-v1.6.0`**。
+把 zip 解压到任意位置（例如 `D:\Tools\`），得到文件夹 **`Antigravity汉化插件-v1.7.0`**。
 
 插件包已内置 Python 运行时，**不需要 git、不需要命令行、不需要自己装 Python**。
 
@@ -106,7 +106,7 @@ Antigravity 自动更新时，官方 `app.asar` 会覆盖汉化补丁——这�
 `python install.py <参数>`；插件包内可用自带的 `runtime\python.exe`：
 
 ```bat
-cd /d "C:\Users\<你>\Downloads\Antigravity汉化插件-v1.6.0"
+cd /d "C:\Users\<你>\Downloads\Antigravity汉化插件-v1.7.0"
 runtime\python.exe install.py --status
 ```
 
@@ -188,11 +188,11 @@ try {
 
 ```json
 {
-  "app_version": "2.34.0",
+  "app_version": "2.35.1",
   "dict_sha256": "…",
   "injected_sha256": "…",
-  "injected_at": "2026-11-21 10:30:00",
-  "toolkit_version": "1.6.0"
+  "injected_at": "2026-11-25 09:30:00",
+  "toolkit_version": "1.7.0"
 }
 ```
 
@@ -251,7 +251,7 @@ v1.5.0 起安装器自带冒烟自检：如果注入后客户端起不来，会�
 - **下载被浏览器/SmartScreen 拦截**：选择「保留」，或用 Release 页面提供的 `.sha256` 校验文件：
 
   ```bat
-  certutil -hashfile "C:\Users\<你>\Downloads\Antigravity-zh-plugin-v1.6.0.zip" SHA256
+  certutil -hashfile "C:\Users\<你>\Downloads\Antigravity-zh-plugin-v1.7.0.zip" SHA256
   ```
 
   与 `.sha256` 文件里的值一致即可放心。
@@ -278,7 +278,7 @@ A：不收费，[MIT 协议](LICENSE) 开源。
 A：补丁只读取并回写界面文本，不拦截网络请求、不改业务状态；但修改 `app.asar` 本身可能违反官方服务条款，请自行评估。
 
 **Q：支持哪些系统？**
-A：Windows 已适配至 Antigravity 2.34.0；macOS / Linux 提供同一套注入逻辑的 `install-macos.sh` / `restore-macos.sh`，未做同版本实测。
+A：Windows 已适配至 Antigravity 2.35.1；macOS / Linux 提供同一套注入逻辑的 `install-macos.sh` / `restore-macos.sh`，未做同版本实测。
 
 **Q：为什么不能在设置里直接选中文？**
 A：Antigravity 官方目前没有中文界面选项，本插件通过注入翻译运行时实现。
@@ -343,6 +343,12 @@ A：`sudo xattr -rd com.apple.quarantine /Applications/Antigravity.app`；安装
 
 ## 更新日志
 
+### v1.7.0（2026-11-25）
+
+- **适配 Antigravity 2.35.1**：提取并补齐 2.35.1 新增 UI 词条（收件箱模式 `Inbox Mode` / `Auto-Resolve` / `Working Section`、语音听写语言、插件权限 `Plugin permissions`、编排器模型选择、云端对话与从远程克隆等），同步补充 `install.py` 原生弹窗静态词条与远程组织登录提示正则规则
+- **插件市场详情页 & README 富文本汉化**：`dicts/engine.js`（v5.1）新增 React 安全内联模板匹配器 `tryRichInlineSentence`，在不改动 DOM 节点结构的前提下整句翻译含 `<strong>`/`<a>`/`<code>` 等内联标签的 Markdown 段落；同步补全全部 15 条插件市场目录缺失描述、72 条官方推荐提示词，以及官方缓存插件（`Google Developer Knowledge`、`Gemini API`、`Android CLI`、Google Workspace 套件）详情页与 README 核心说明
+- **词典与规则规模**：词典由 7,298 条扩充至 **7,614** 条（+316 条），动态正则规则扩充至 **314** 条
+
 ### v1.6.0（2026-11-21）
 
 - **全面适配 Antigravity 2.34.0**：从新版客户端内置前端全量提取并补齐 UI 词条，词典由 6,360 条扩充至 **7,298** 条（+938 条），动态规则扩充至 **306** 条
@@ -396,14 +402,14 @@ python install.py --asar "D:\Portable\Antigravity\resources\app.asar"   :: 手�
 ### 打包发布
 
 ```bat
-python build_release.py          :: 生成 dist\Antigravity-zh-plugin-v1.6.0.zip（内置 runtime\）及 .sha256
+python build_release.py          :: 生成 dist\Antigravity-zh-plugin-v1.7.0.zip（内置 runtime\）及 .sha256
 python build_release.py --slim   :: 不内置运行时（约 250 KB，需系统已装 Python）
 ```
 
 插件包结构（解压即用）：
 
 ```text
-Antigravity汉化插件-v1.6.0/
+Antigravity汉化插件-v1.7.0/
 ├── 安装汉化插件.bat          ← 双击这个
 ├── 还原官方原版.bat
 ├── 汉化并启动.bat            ← 客户端更新后双击这个
