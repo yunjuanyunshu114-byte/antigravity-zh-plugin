@@ -198,10 +198,16 @@ def app_exe_path(resources_dir=None):
     return None
 
 
-def is_app_running():
+def _macos_proc_pattern(exe=None):
+    if exe and exe.endswith(".app"):
+        return os.path.basename(exe) + "/Contents/MacOS"
+    return "Antigravity.app/Contents/MacOS"
+
+
+def is_app_running(exe=None):
     try:
         if sys.platform == "darwin":
-            r = subprocess.run(["pgrep", "-f", "Antigravity.app/Contents/MacOS"], capture_output=True)
+            r = subprocess.run(["pgrep", "-f", _macos_proc_pattern(exe)], capture_output=True)
             return r.returncode == 0
         if sys.platform == "win32":
             r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq Antigravity.exe"],
@@ -213,8 +219,8 @@ def is_app_running():
         return False
 
 
-def kill_app(wait_seconds=20):
-    if not is_app_running():
+def kill_app(wait_seconds=20, exe=None):
+    if not is_app_running(exe):
         return True
     say("[*] 正在关闭 Antigravity ...")
     try:
@@ -222,18 +228,81 @@ def kill_app(wait_seconds=20):
             subprocess.run(["taskkill", "/IM", "Antigravity.exe", "/F", "/T"],
                            capture_output=True, text=True, encoding="utf-8", errors="ignore")
         elif sys.platform == "darwin":
-            subprocess.run(["pkill", "-f", "Antigravity.app/Contents/MacOS"], capture_output=True)
+            subprocess.run(["pkill", "-f", _macos_proc_pattern(exe)], capture_output=True)
         else:
             subprocess.run(["pkill", "-x", "Antigravity"], capture_output=True)
     except Exception:
         pass
     deadline = time.time() + wait_seconds
     while time.time() < deadline:
-        if not is_app_running():
+        if not is_app_running(exe):
             time.sleep(1.0)  # 留时间给系统释放文件句柄
             return True
         time.sleep(0.5)
-    return not is_app_running()
+    return not is_app_running(exe)
+
+
+def check_macos_asar_integrity_fuse(app_path):
+    """检查 macOS 客户端 Electron Fuse 是否启用了 EnableEmbeddedAsarIntegrityValidation。
+    返回: 'ENABLED' / 'DISABLED' / 'UNKNOWN'。
+    """
+    if sys.platform != "darwin" or not app_path:
+        return "UNKNOWN"
+    fw_bin = os.path.join(
+        app_path, "Contents", "Frameworks",
+        "Electron Framework.framework", "Versions", "A", "Electron Framework",
+    )
+    if not os.path.exists(fw_bin):
+        return "UNKNOWN"
+    sentinel = b"dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX"
+    try:
+        with open(fw_bin, "rb") as f:
+            data = f.read()
+        idx = data.find(sentinel)
+        if idx < 0:
+            return "UNKNOWN"
+        length = data[idx + len(sentinel) + 1]
+        fuses = data[idx + len(sentinel) + 2 : idx + len(sentinel) + 2 + length]
+        if len(fuses) > 4:
+            return {0x30: "DISABLED", 0x31: "ENABLED", 0x72: "REMOVED"}.get(fuses[4], "UNKNOWN")
+    except Exception:
+        pass
+    return "UNKNOWN"
+
+
+def codesign_macos(app_path):
+    """macOS 清除隔离属性并执行 ad-hoc 重签名 + 严格校验，解决修改 app.asar 后签名失效问题。"""
+    if sys.platform != "darwin":
+        return True, "非 macOS 跳过"
+    if not app_path or not os.path.isdir(app_path) or not app_path.endswith(".app"):
+        return True, "非 .app 包跳过"
+    try:
+        subprocess.run(["xattr", "-dr", "com.apple.quarantine", app_path],
+                       capture_output=True, text=True)
+    except Exception:
+        pass
+    try:
+        say("[*] macOS 正在执行 ad-hoc 重签名: %s" % app_path)
+        r = subprocess.run(["codesign", "--force", "--deep", "--sign", "-", app_path],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            err = (r.stderr or r.stdout or "").strip()[:300]
+            say("[!] macOS 重签名失败: %s" % err)
+            return False, err or "codesign 返回非零退出码"
+        v = subprocess.run(["codesign", "--verify", "--deep", "--strict", app_path],
+                           capture_output=True, text=True)
+        if v.returncode != 0:
+            err = (v.stderr or v.stdout or "").strip()[:300]
+            say("[!] macOS 签名校验未通过: %s" % err)
+            return False, err or "codesign --verify 失败"
+        say("[OK] macOS ad-hoc 重签名与校验通过")
+        return True, "ok"
+    except FileNotFoundError:
+        say("[!] 未找到 codesign 命令，跳过重签名（若启动提示“应用已损坏”，请手动执行 codesign）")
+        return True, "codesign 未找到"
+    except Exception as e:
+        say("[!] macOS 重签名异常: %s" % e)
+        return False, str(e)
 
 
 def start_app(exe):
@@ -1050,7 +1119,11 @@ def has_installed_app(resources_dir):
     if sys.platform == "win32":
         return os.path.exists(os.path.join(root, "Antigravity.exe"))
     if sys.platform == "darwin":
-        return os.path.isdir(root) and root.endswith(".app")
+        # macOS 结构为 <App>.app/Contents/Resources/app.asar，需向上两级定位 .app 包
+        app_bundle = os.path.dirname(root)
+        return (os.path.isdir(app_bundle)
+                and app_bundle.endswith(".app")
+                and os.path.isdir(os.path.join(app_bundle, "Contents", "MacOS")))
     return os.path.exists(os.path.join(root, "Antigravity"))
 
 
@@ -1062,14 +1135,20 @@ def cmd_install(args, launch_after=None):
     say("[*] 使用 app.asar: %s" % asar_path)
     say("[*] 客户端: %s" % (exe or "未找到（稍后仅注入）"))
 
+    if sys.platform == "darwin" and installed_app and exe:
+        fuse_val = check_macos_asar_integrity_fuse(exe)
+        if fuse_val == "ENABLED":
+            die("检测到当前 macOS 客户端启用了 Electron ASAR 完整性校验（EnableEmbeddedAsarIntegrityValidation），"
+                "修改 app.asar 将导致无法启动，已中止（未改动任何文件）。", 2)
+
     dict_ = load_dictionary()
     dsha = dictionary_sha(dict_)
     say("[*] 词典词条: %d（%s）" % (len(dict_), dsha[:12]))
 
     if offline:
         say("[i] 离线模式（操作的是自定义 app.asar 副本，不启动/不影响已安装客户端）")
-    elif is_app_running():
-        if not kill_app():
+    elif is_app_running(exe):
+        if not kill_app(exe=exe):
             die("Antigravity 正在运行且无法关闭，请手动完全退出后重试。")
 
     unpacked_set = original_unpacked_set(asar_path)
@@ -1189,8 +1268,26 @@ def cmd_install(args, launch_after=None):
             else:
                 say("[i] 非 Windows 平台跳过冒烟测试")
 
+        macos_rollback_asar = None
+        if sys.platform == "darwin" and installed_app and exe and swap_state.get("keep_asar"):
+            macos_rollback_asar = os.path.join(build_dir, "keep.asar")
+            shutil.copy2(swap_state["keep_asar"], macos_rollback_asar)
+
         finalize_swap(swap_state)
         swap_state = None
+
+        # ---- macOS ad-hoc 重签名（必须在清理 .agzh_keep 临时文件之后，避免被封签后又删除导致校验失败）----
+        if sys.platform == "darwin" and installed_app and exe:
+            sign_ok, sign_reason = codesign_macos(exe)
+            if not sign_ok:
+                say("[*] macOS 重签名失败，正在回滚 app.asar ...")
+                if macos_rollback_asar and os.path.exists(macos_rollback_asar):
+                    stage_rb = asar_path + ".agzh_restore"
+                    shutil.copy2(macos_rollback_asar, stage_rb)
+                    os.replace(stage_rb, asar_path)
+                    say("[OK] 已回滚 app.asar")
+                die("macOS 重签名失败：%s" % sign_reason, 2)
+
         save_state(app_version, dsha, sha256(asar_path))
         if task_installed():
             try:
@@ -1218,7 +1315,7 @@ def cmd_install(args, launch_after=None):
     if launch_after is None:
         launch_after = args.launch or args.auto
     if launch_after or do_smoke:
-        if is_app_running():
+        if is_app_running(exe):
             say("[i] 客户端已在运行。")
         else:
             if start_app(exe):
@@ -1273,12 +1370,15 @@ def cmd_restore(args):
             say("    建议：先运行「安装汉化插件.bat」为当前版本生成官方备份，再执行还原。")
             die("版本不匹配，已拒绝还原（可用 --force 强制，但不推荐）。", 4)
 
-    if not kill_app():
+    if not kill_app(exe=exe):
         die("Antigravity 正在运行且无法关闭，请手动退出后重试。")
     say("[*] 正在用「%s」还原 ..." % chosen[0])
     stage = asar_path + ".agzh_restore"
     shutil.copy2(chosen[1], stage)
     os.replace(stage, asar_path)
+    if sys.platform == "darwin" and has_installed_app(resources_dir) and exe:
+        codesign_macos(exe)
+        say("[i] macOS 已刷新 ad-hoc 签名以保证应用可正常启动；如需恢复 Google 官方签名，重新安装官方客户端即可。")
     try:
         if os.path.exists(STATE_FILE):
             os.remove(STATE_FILE)
@@ -1308,7 +1408,9 @@ def cmd_status(args):
     say("大小: %d bytes" % os.path.getsize(asar_path))
     say("SHA256: %s" % sha256(asar_path))
     say("汉化: %s" % ("已注入" if patched else "未注入（官方原版）"))
-    say("运行中: %s" % ("是" if is_app_running() else "否"))
+    say("运行中: %s" % ("是" if is_app_running(exe) else "否"))
+    if sys.platform == "darwin" and has_installed_app(resources_dir) and exe:
+        say("ASAR 完整性校验(Fuse): %s" % check_macos_asar_integrity_fuse(exe))
 
     state = load_state()
     if state:
@@ -1439,7 +1541,7 @@ def cmd_remove_task(args):
 def cmd_auto(args, silent=False):
     asar_path, resources_dir = detect_paths(args.asar)
     exe = app_exe_path(resources_dir)
-    if is_app_running():
+    if is_app_running(exe):
         if silent:
             say("[i] 客户端正在运行，自动修复跳过。")
             return 0
